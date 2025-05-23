@@ -1,6 +1,5 @@
 package com.example.dao;
 
-import com.example.model.Round;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -9,6 +8,8 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+
+import com.example.model.Round;
 
 public class RoundDAO extends DAO {
     public RoundDAO() {
@@ -113,8 +114,26 @@ public class RoundDAO extends DAO {
     }
 
     public Round saveRound(Round round) {
+        // Kiểm tra xem vòng đấu đã tồn tại chưa
+        String checkSql = "SELECT id FROM tblRound WHERE tournamentId = ? AND roundNumber = ?";
+        try {
+            PreparedStatement checkPs = getConnection().prepareStatement(checkSql);
+            checkPs.setInt(1, round.getTournamentId());
+            checkPs.setInt(2, round.getRoundNumber());
+            ResultSet rs = checkPs.executeQuery();
+            if (rs.next()) {
+                System.err.println("Vòng đấu " + round.getRoundNumber() + " đã tồn tại trong giải đấu này.");
+                return null;
+            }
+            checkPs.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return null;
+        }
+
         String sql = "INSERT INTO tblRound (tournamentId, roundNumber, name, startTime, status) VALUES (?, ?, ?, ?, ?)";
         try {
+            getConnection().setAutoCommit(false); // Bắt đầu transaction
             PreparedStatement ps = getConnection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
             ps.setInt(1, round.getTournamentId());
             ps.setInt(2, round.getRoundNumber());
@@ -131,14 +150,27 @@ public class RoundDAO extends DAO {
                 try (ResultSet generatedKeys = ps.getGeneratedKeys()) {
                     if (generatedKeys.next()) {
                         round.setId(generatedKeys.getInt(1));
+                        getConnection().commit(); // Commit transaction
+                        return round;
                     }
                 }
             }
-            ps.close();
+            getConnection().rollback(); // Rollback nếu không thành công
+            return null;
         } catch (SQLException e) {
+            try {
+                getConnection().rollback(); // Rollback nếu có lỗi
+            } catch (SQLException ex) {
+                ex.printStackTrace();
+            }
             e.printStackTrace();
             return null;
+        } finally {
+            try {
+                getConnection().setAutoCommit(true); // Reset auto commit
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
         }
-        return round;
     }
 }

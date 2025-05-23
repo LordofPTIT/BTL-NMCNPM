@@ -1,15 +1,33 @@
 package com.example.view;
 
-import com.example.controller.PairingController;
-import com.example.model.*;
-
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
 import java.util.Vector;
+
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.SwingConstants;
+import javax.swing.table.DefaultTableModel;
+
+import com.example.controller.PairingController;
+import com.example.model.Match;
+import com.example.model.Round;
+import com.example.model.Standing;
+import com.example.model.Tournament;
+import com.example.model.User;
 
 public class PairingSetupFrm extends JFrame implements ActionListener {
     private User loggedInUser;
@@ -133,20 +151,25 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
         List<Round> completedRounds = pairingController.getCompletedRoundsByTournament(selectedTournament.getId());
         cmbPreviousRounds.removeAllItems();
 
+        // Lấy vòng đấu tiếp theo dựa trên các vòng đã hoàn thành
+        int nextRoundNumber = completedRounds.isEmpty() ? 1 : completedRounds.get(completedRounds.size() - 1).getRoundNumber() + 1;
+        forWhichRoundNumber = nextRoundNumber;
+
         if (completedRounds.isEmpty()) {
             cmbPreviousRounds.addItem(ROUND_1_PLACEHOLDER);
             cmbPreviousRounds.setEnabled(false); // No previous rounds to select for Round 1
+            lblCurrentRoundInfo.setText("Chuẩn bị xếp cặp cho Vòng 1 của giải " + selectedTournament.getName());
         } else {
+            // Thêm tất cả các vòng đã hoàn thành vào combobox
             for (Round r : completedRounds) {
                 cmbPreviousRounds.addItem(r);
             }
-            // Select the latest completed round by default
-            if (!completedRounds.isEmpty()) {
-                cmbPreviousRounds.setSelectedItem(completedRounds.get(completedRounds.size() - 1));
-            }
+            // Chọn vòng hoàn thành gần nhất
+            cmbPreviousRounds.setSelectedItem(completedRounds.get(completedRounds.size() - 1));
             cmbPreviousRounds.setEnabled(true);
+            lblCurrentRoundInfo.setText("Cơ sở: " + completedRounds.get(completedRounds.size() - 1).getName() + 
+                " | Chuẩn bị xếp cặp cho Vòng " + nextRoundNumber + " của giải " + selectedTournament.getName());
         }
-        updateRoundInfoAndForWhichRound(); // Update labels based on new selection
     }
 
     private void actionPreviousRoundSelected() {
@@ -166,15 +189,13 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
             Round prevRound = (Round) selectedItem;
             basedOnRoundNumber = prevRound.getRoundNumber();
             forWhichRoundNumber = basedOnRoundNumber + 1;
-            lblCurrentRoundInfo.setText("Cơ sở: " + prevRound.getName() + " | Chuẩn bị xếp cặp cho Vòng " + forWhichRoundNumber + " của giải " + selectedTournament.getName());
-        } else if (ROUND_1_PLACEHOLDER.equals(selectedItem) || selectedItem == null) {
+            lblCurrentRoundInfo.setText("Cơ sở: " + prevRound.getName() + 
+                " | Chuẩn bị xếp cặp cho Vòng " + forWhichRoundNumber + " của giải " + selectedTournament.getName());
+        } else if (ROUND_1_PLACEHOLDER.equals(selectedItem)) {
             // This case means we are pairing for Round 1
             forWhichRoundNumber = 1;
-            lblCurrentRoundInfo.setText("Cơ sở: Elo ban đầu | Chuẩn bị xếp cặp cho Vòng " + forWhichRoundNumber + " của giải " + selectedTournament.getName());
-        } else {
-            // Fallback or if cmbPreviousRounds is empty after loading tournament (shouldn't happen with placeholder)
-            forWhichRoundNumber = pairingController.getNextRoundNumberBasedOnExisting(selectedTournament.getId());
-            lblCurrentRoundInfo.setText("Chuẩn bị xếp cặp cho Vòng " + forWhichRoundNumber + " của giải " + selectedTournament.getName());
+            lblCurrentRoundInfo.setText("Cơ sở: Elo ban đầu | Chuẩn bị xếp cặp cho Vòng " + 
+                forWhichRoundNumber + " của giải " + selectedTournament.getName());
         }
     }
 
@@ -288,7 +309,6 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
     // Method to be called from GeneratedPairingsFrm after successful save
     public void refreshAfterSave() {
         // Reload everything as if a new tournament was selected
-        // or just update the cmbPreviousRounds and clear table
         standingsTableModel.setRowCount(0);
         btnGeneratePairings.setEnabled(false);
         currentStandingsForPairing = null;
@@ -296,20 +316,25 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
         if (selectedTournament != null) {
             List<Round> completedRounds = pairingController.getCompletedRoundsByTournament(selectedTournament.getId());
             cmbPreviousRounds.removeAllItems();
+
+            // Lấy vòng đấu tiếp theo dựa trên các vòng đã hoàn thành
+            int nextRoundNumber = completedRounds.isEmpty() ? 1 : completedRounds.get(completedRounds.size() - 1).getRoundNumber() + 1;
+            forWhichRoundNumber = nextRoundNumber;
+
             if (completedRounds.isEmpty()) {
                 cmbPreviousRounds.addItem(ROUND_1_PLACEHOLDER);
                 cmbPreviousRounds.setEnabled(false);
+                lblCurrentRoundInfo.setText("Chuẩn bị xếp cặp cho Vòng 1 của giải " + selectedTournament.getName());
             } else {
                 for (Round r : completedRounds) {
                     cmbPreviousRounds.addItem(r);
                 }
-                // Select the newly completed round (which is now the latest)
-                if (!completedRounds.isEmpty()) {
-                    cmbPreviousRounds.setSelectedItem(completedRounds.get(completedRounds.size() - 1));
-                }
+                // Chọn vòng hoàn thành gần nhất
+                cmbPreviousRounds.setSelectedItem(completedRounds.get(completedRounds.size() - 1));
                 cmbPreviousRounds.setEnabled(true);
+                lblCurrentRoundInfo.setText("Cơ sở: " + completedRounds.get(completedRounds.size() - 1).getName() + 
+                    " | Chuẩn bị xếp cặp cho Vòng " + nextRoundNumber + " của giải " + selectedTournament.getName());
             }
-            updateRoundInfoAndForWhichRound();
         } else {
             actionTournamentSelected(); // Fallback to reload all tournaments if selectedTournament became null
         }

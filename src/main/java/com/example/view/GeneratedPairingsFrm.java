@@ -1,17 +1,28 @@
 package com.example.view;
 
-import com.example.controller.PairingController;
-import com.example.model.Match;
-import com.example.model.Tournament;
-import com.example.model.User;
-
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
 import java.util.Vector;
+
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.SwingConstants;
+import javax.swing.table.DefaultTableModel;
+
+import com.example.controller.PairingController;
+import com.example.model.Match;
+import com.example.model.Tournament;
+import com.example.model.User;
 
 public class GeneratedPairingsFrm extends JDialog implements ActionListener { // JDialog để là cửa sổ con
     private User loggedInUser;
@@ -91,18 +102,33 @@ public class GeneratedPairingsFrm extends JDialog implements ActionListener { //
     @Override
     public void actionPerformed(ActionEvent e) {
         if (e.getSource() == btnSavePairings) {
-            boolean success = pairingController.saveNewRoundAndPairings(tournament.getId(), roundNumber, generatedMatches);
-            if (success) {
-                JOptionPane.showMessageDialog(this, "Đã lưu thành công lịch thi đấu cho Vòng " + roundNumber + "!", "Thành công", JOptionPane.INFORMATION_MESSAGE);
-                this.dispose();
-                // Thông báo cho parentFrame (PairingSetupFrm) để cập nhật nếu cần
-                if (parentFrame instanceof PairingSetupFrm) {
-                    // ((PairingSetupFrm) parentFrame).refreshDataAfterSave(); // Cần tạo hàm này ở PairingSetupFrm
-                    parentFrame.dispose(); // Đóng cửa sổ thiết lập
-                    new PairingSetupFrm(loggedInUser).setVisible(true); // Mở lại để thấy vòng mới
+            try {
+                boolean success = pairingController.saveNewRoundAndPairings(tournament.getId(), roundNumber, generatedMatches);
+                if (success) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Đã lưu thành công lịch thi đấu cho Vòng " + roundNumber + "!", 
+                        "Thành công", 
+                        JOptionPane.INFORMATION_MESSAGE);
+                    this.dispose();
+                    // Thông báo cho parentFrame (PairingSetupFrm) để cập nhật
+                    if (parentFrame instanceof PairingSetupFrm) {
+                        ((PairingSetupFrm) parentFrame).refreshAfterSave();
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(this, 
+                        "Không thể lưu lịch thi đấu. Vui lòng kiểm tra:\n" +
+                        "1. Vòng đấu đã tồn tại chưa\n" +
+                        "2. Dữ liệu đầu vào có hợp lệ không\n" +
+                        "3. Kết nối database có ổn định không", 
+                        "Lỗi Lưu", 
+                        JOptionPane.ERROR_MESSAGE);
                 }
-            } else {
-                JOptionPane.showMessageDialog(this, "Không thể lưu lịch thi đấu. Vui lòng thử lại.", "Lỗi Lưu", JOptionPane.ERROR_MESSAGE);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this,
+                    "Đã xảy ra lỗi không mong muốn: " + ex.getMessage(),
+                    "Lỗi Hệ Thống",
+                    JOptionPane.ERROR_MESSAGE);
+                ex.printStackTrace();
             }
         } else if (e.getSource() == btnCancel) {
             this.dispose();

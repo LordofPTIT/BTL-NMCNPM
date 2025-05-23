@@ -204,6 +204,22 @@ public class PairingController {
     }
 
     public boolean saveNewRoundAndPairings(int tournamentId, int roundNumber, List<Match> pairings) {
+        // Kiểm tra đầu vào
+        if (tournamentId <= 0 || roundNumber <= 0 || pairings == null || pairings.isEmpty()) {
+            System.err.println("Dữ liệu đầu vào không hợp lệ");
+            return false;
+        }
+
+        // Kiểm tra xem vòng đấu đã tồn tại chưa
+        List<Round> existingRounds = roundDAO.getRoundsByTournament(tournamentId);
+        for (Round round : existingRounds) {
+            if (round.getRoundNumber() == roundNumber) {
+                System.err.println("Vòng đấu " + roundNumber + " đã tồn tại trong giải đấu này");
+                return false;
+            }
+        }
+
+        // Tạo Round mới
         Round newRound = new Round();
         newRound.setTournamentId(tournamentId);
         newRound.setRoundNumber(roundNumber);
@@ -217,17 +233,26 @@ public class PairingController {
             return false;
         }
 
+        // Gán roundId cho các match và xử lý BYE
         for (Match match : pairings) {
             match.setRoundId(savedRound.getId());
             if (match.getPlayer2Id() == null) { // BYE match
                 match.setResult("BYE");
-                // Update bye status for the player who received the bye
-                tournamentPlayerDAO.updatePlayerByeStatus(tournamentId, match.getPlayer1Id());
-                // Points for BYE (e.g., 1 point) would be handled in results update module
+                // Cập nhật trạng thái BYE cho người chơi
+                if (!tournamentPlayerDAO.updatePlayerByeStatus(tournamentId, match.getPlayer1Id())) {
+                    System.err.println("Không thể cập nhật trạng thái BYE cho người chơi " + match.getPlayer1Id());
+                    return false;
+                }
             }
         }
 
+        // Lưu các trận đấu
         boolean matchesSaved = matchDAO.saveMatches(pairings, savedRound.getId());
-        return matchesSaved;
+        if (!matchesSaved) {
+            System.err.println("Không thể lưu các trận đấu.");
+            return false;
+        }
+
+        return true;
     }
 }
