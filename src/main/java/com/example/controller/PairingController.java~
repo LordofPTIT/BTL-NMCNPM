@@ -1,0 +1,247 @@
+package com.example.controller;
+
+import com.example.dao.*;
+import com.example.model.*;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class PairingController {
+    private TournamentDAO tournamentDAO;
+    private RoundDAO roundDAO;
+    private TournamentPlayerDAO tournamentPlayerDAO;
+    private MatchDAO matchDAO;
+    private ChessPlayerDAO chessPlayerDAO;
+
+
+    public PairingController() {
+        this.tournamentDAO = new TournamentDAO();
+        this.roundDAO = new RoundDAO();
+        this.tournamentPlayerDAO = new TournamentPlayerDAO();
+        this.matchDAO = new MatchDAO();
+        this.chessPlayerDAO = new ChessPlayerDAO();
+    }
+
+    public List<Tournament> getAllTournaments() {
+        return tournamentDAO.getAllTournaments();
+    }
+
+    public Round getLatestCompletedRound(int tournamentId) {
+        return roundDAO.getLatestCompletedRound(tournamentId);
+    }
+
+    public int getNextRoundNumber(int tournamentId) {
+        return roundDAO.getNextRoundNumber(tournamentId);
+    }
+
+    public List<Standing> getCurrentStandings(int tournamentId, int forRoundNumber) {
+        List<TournamentPlayer> players;
+        if (forRoundNumber == 1) { // Chuẩn bị cho vòng 1, lấy Elo ban đầu
+            players = tournamentPlayerDAO.getTournamentPlayersForRound1Pairing(tournamentId);
+        } else { // Từ vòng 2 trở đi, lấy theo điểm, tổng điểm đối thủ, Elo hiện tại
+            players = tournamentPlayerDAO.getTournamentPlayersByTournamentId(tournamentId);
+        }
+
+        List<Standing> standings = new ArrayList<>();
+        for (int i = 0; i < players.size(); i++) {
+            TournamentPlayer tp = players.get(i);
+            ChessPlayer cp = tp.getPlayerDetails(); // Đã được join trong DAO
+            if (cp == null) { // Dự phòng nếu playerDetails không được load
+                cp = chessPlayerDAO.getPlayerById(tp.getPlayerId());
+            }
+
+            standings.add(new Standing(
+                    i + 1, // rank
+                    tp.getPlayerId(),
+                    cp != null ? cp.getName() : "Unknown Player " + tp.getPlayerId(),
+                    forRoundNumber == 1 ? (cp != null ? cp.getInitialElo() : 0) : tp.getCurrentElo(),
+                    tp.getTotalPoints(),
+                    tp.getSumOpponentPoints(),
+                    tp.getOpponentsPlayedIds(),
+                    tp.hasReceivedBye()
+            ));
+        }
+        return standings;
+    }
+
+
+    public List<Match> generatePairings(int tournamentId, int forRoundNumber, List<Standing> currentStandings) {
+        List<Match> pairings = new ArrayList<>();
+        List<TournamentPlayer> availablePlayers = currentStandings.stream()
+                .map(s -> {
+                    TournamentPlayer tp = new TournamentPlayer();
+                    tp.setPlayerId(s.getPlayerId());
+                    tp.setPlayerDetails(chessPlayerDAO.getPlayerById(s.getPlayerId())); // Cần load chi tiết
+                    tp.setCurrentElo(s.getCurrentElo());
+                    tp.setTotalPoints(s.getTotalPoints());
+                    tp.setSumOpponentPoints(s.getSumOpponentPoints());
+                    tp.setOpponentsPlayedRaw(s.getOpponentsPlayedIds().stream().map(String::valueOf).collect(Collectors.joining(",")));
+                    tp.setHasReceivedBye(s.hasReceivedBye());
+                    return tp;
+                })
+                .collect(Collectors.toList());
+
+        // Load chi tiết cờ thủ (tên) cho các pairings
+        List<Integer> playerIdsForDetails = availablePlayers.stream().map(TournamentPlayer::getPlayerId).collect(Collectors.toList());
+        Map<Integer, ChessPlayer> playerDetailsMap = chessPlayerDAO.getPlayersByIds(playerIdsForDetails);
+        availablePlayers.forEach(tp -> tp.setPlayerDetails(playerDetailsMap.get(tp.getPlayerId())));
+
+
+        Set<Integer> pairedPlayerIds = new HashSet<>();
+        int tableNumber = 1;
+
+        // Xử lý BYE nếu số lượng cờ thủ lẻ
+        TournamentPlayer byePlayer = null;
+        if (availablePlayers.size() % 2 != 0) {
+            // Tìm người chưa nhận bye và có rank thấp nhất (cuối danh sách)
+            // Hoặc theo luật ưu tiên khác nếu có (ví dụ: người mới tham gia, điểm thấp nhất chưa bye)
+            for (int i = availablePlayers.size() - 1; i >= 0; i--) {
+                TournamentPlayer potentialByePlayer = availablePlayers.get(i);
+                if (!potentialByePlayer.hasReceivedBye()) {
+                    byePlayer = potentialByePlayer;
+                    break;
+                }
+            }
+            // Nếu tất cả đã nhận bye, chọn người có rank thấp nhất (cuối danh sách)
+            if (byePlayer == null && !availablePlayers.isEmpty()) {
+                byePlayer = availablePlayers.get(availablePlayers.size() - 1);
+            }
+
+            if (byePlayer != null) {
+                Match byeMatch = new Match(0, byePlayer.getPlayerId(), null, tableNumber++); // roundId sẽ được set sau
+                byeMatch.setPlayer1Details(byePlayer.getPlayerDetails());
+                pairings.add(byeMatch);
+                pairedPlayerIds.add(byePlayer.getPlayerId());
+                // Đánh dấu người chơi này đã nhận bye
+                tournamentPlayerDAO.updatePlayerByeStatus(tournamentId, byePlayer.getPlayerId());
+            }
+        }
+
+
+        if (forRoundNumber == 1) {
+            // Luật: "hai cờ thủ đứng kề nhau sẽ tạo thành một cặp đấu cho vòng 1"
+            // currentStandings đã được sắp xếp theo Elo ban đầu giảm dần
+            for (int i = 0; i < availablePlayers.size(); i++) {
+                TournamentPlayer player1 = availablePlayers.get(i);
+                if (pairedPlayerIds.contains(player1.getPlayerId())) continue;
+
+                if (i + 1 < availablePlayers.size()) {
+                    TournamentPlayer player2 = availablePlayers.get(i + 1);
+                    if (pairedPlayerIds.contains(player2.getPlayerId())) {
+                        // Player 2 đã được ghép cặp (ví dụ: là byePlayer), player 1 sẽ không có cặp trong logic này.
+                        // Đây là trường hợp đặc biệt cần xem xét lại luật cho vòng 1 nếu số lẻ.
+                        // Hoặc, nếu player2 đã là bye, thì player1 phải tìm người tiếp theo.
+                        // Theo luật "kề nhau", nếu player2 đã ghép, thì player1 không có cặp.
+                        // Tạm thời bỏ qua, logic bye ở trên đã xử lý 1 người.
+                        // Nếu sau khi xử lý bye mà vẫn còn lẻ ở đây thì luật "kề nhau" có vấn đề với số lẻ.
+                        // Giả sử số lượng sau khi xử lý bye là chẵn.
+                        continue;
+                    }
+
+                    Match match = new Match(0, player1.getPlayerId(), player2.getPlayerId(), tableNumber++);
+                    match.setPlayer1Details(player1.getPlayerDetails());
+                    match.setPlayer2Details(player2.getPlayerDetails());
+                    pairings.add(match);
+                    pairedPlayerIds.add(player1.getPlayerId());
+                    pairedPlayerIds.add(player2.getPlayerId());
+                    i++; // Bỏ qua player2 vì đã được ghép cặp
+                } else {
+                    // Còn lại 1 người không có cặp (sau khi xử lý bye nếu có)
+                    // Trường hợp này không nên xảy ra nếu logic bye đúng và số lượng ban đầu là chẵn hoặc đã xử lý bye.
+                    System.err.println("Lỗi logic xếp cặp vòng 1: Còn lại 1 người không có cặp: " + player1.getPlayerName());
+                }
+            }
+        } else {
+            // Luật Thụy Sĩ từ vòng 2:
+            // "đi từ đầu đến cuối bảng xếp hạng tạm thời, với mỗi cờ thủ chưa có cặp,
+            // đối thủ cả cờ thủ đó là cờ thủ đầu tiên gặp phải và thỏa mãn: chưa có cặp, và chưa gặp cờ thủ đang xem xét."
+            Set<String> existingPairsInTournament = matchDAO.getPlayedPairsInTournament(tournamentId);
+
+            for (TournamentPlayer player1 : availablePlayers) {
+                if (pairedPlayerIds.contains(player1.getPlayerId())) continue;
+
+                for (TournamentPlayer player2 : availablePlayers) {
+                    if (player1.getPlayerId() == player2.getPlayerId() || pairedPlayerIds.contains(player2.getPlayerId())) {
+                        continue;
+                    }
+
+                    // Kiểm tra đã gặp nhau chưa
+                    String pairKey1 = Math.min(player1.getPlayerId(), player2.getPlayerId()) + "-" + Math.max(player1.getPlayerId(), player2.getPlayerId());
+                    // boolean havePlayedBefore = player1.getOpponentsPlayedIds().contains(player2.getPlayerId()); // Dùng opponentsPlayed từ tblTournamentPlayer
+                    boolean havePlayedBefore = existingPairsInTournament.contains(pairKey1);
+
+
+                    if (!havePlayedBefore) {
+                        Match match = new Match(0, player1.getPlayerId(), player2.getPlayerId(), tableNumber++);
+                        match.setPlayer1Details(player1.getPlayerDetails());
+                        match.setPlayer2Details(player2.getPlayerDetails());
+                        pairings.add(match);
+                        pairedPlayerIds.add(player1.getPlayerId());
+                        pairedPlayerIds.add(player2.getPlayerId());
+                        break; // player1 đã có đối thủ, chuyển sang người tiếp theo trong danh sách availablePlayers
+                    }
+                }
+                // Nếu player1 duyệt hết mà không tìm được đối thủ (không nên xảy ra nếu logic đúng và có đủ người)
+                if (!pairedPlayerIds.contains(player1.getPlayerId())) {
+                    System.err.println("Không tìm thấy đối thủ cho: " + player1.getPlayerName() + " (ID: " + player1.getPlayerId() + ")");
+                    // Có thể xử lý bằng cách cho bye nếu được phép hoặc báo lỗi
+                }
+            }
+        }
+        return pairings;
+    }
+
+    public boolean saveNewRoundAndPairings(int tournamentId, int roundNumber, List<Match> pairings) {
+        // 1. Tạo Round mới
+        Round newRound = new Round();
+        newRound.setTournamentId(tournamentId);
+        newRound.setRoundNumber(roundNumber);
+        newRound.setName("Vòng " + roundNumber);
+        newRound.setStartTime(new Date()); // Thời gian hiện tại, hoặc cho phép chọn
+        newRound.setStatus("PENDING"); // Hoặc "ACTIVE"
+
+        Round savedRound = roundDAO.saveRound(newRound);
+        if (savedRound == null || savedRound.getId() == 0) {
+            System.err.println("Không thể lưu vòng đấu mới.");
+            return false;
+        }
+
+        // 2. Gán roundId cho các match
+        for (Match match : pairings) {
+            match.setRoundId(savedRound.getId());
+            // Nếu là BYE, player2Id là null
+            if (match.getPlayer2Id() == null) { // BYE match
+                match.setResult("BYE"); // Hoặc 1-0 cho player1 tùy luật
+                // Cập nhật điểm và elo cho người nhận bye (thường ở module cập nhật kết quả)
+            }
+        }
+
+        // 3. Lưu các trận đấu
+        boolean matchesSaved = matchDAO.saveMatches(pairings, savedRound.getId());
+
+        // 4. Cập nhật opponentsPlayed cho các cờ thủ (sau khi pairings đã được xác nhận và lưu)
+        // Việc này thường xảy ra sau khi kết quả được cập nhật, nhưng có thể cập nhật ngay sau khi xếp cặp
+        // để tránh xếp lại cặp đó trong tương lai nếu có lỗi gì đó.
+        // Tuy nhiên, theo logic hiện tại, `getPlayedPairsInTournament` sẽ kiểm tra `tblMatch`.
+        // Nếu bạn muốn cập nhật `tblTournamentPlayer.opponentsPlayed` ngay:
+        /*
+        if(matchesSaved) {
+            for(Match match : pairings) {
+                if (match.getPlayer2Id() != null) { // Không phải BYE
+                    TournamentPlayer tp1 = tournamentPlayerDAO.getTournamentPlayer(tournamentId, match.getPlayer1Id());
+                    TournamentPlayer tp2 = tournamentPlayerDAO.getTournamentPlayer(tournamentId, match.getPlayer2Id());
+                    if(tp1 != null) {
+                        tp1.addOpponentPlayed(match.getPlayer2Id());
+                        tournamentPlayerDAO.updateOpponentsPlayed(tournamentId, tp1.getPlayerId(), tp1.getOpponentsPlayedIds());
+                    }
+                    if(tp2 != null) {
+                        tp2.addOpponentPlayed(match.getPlayer1Id());
+                        tournamentPlayerDAO.updateOpponentsPlayed(tournamentId, tp2.getPlayerId(), tp2.getOpponentsPlayedIds());
+                    }
+                }
+            }
+        }
+        */
+        return matchesSaved;
+    }
+}

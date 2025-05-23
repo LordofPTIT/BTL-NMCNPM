@@ -1,0 +1,207 @@
+package com.example.view;
+
+import com.example.controller.PairingController;
+import com.example.model.Match;
+import com.example.model.Round;
+import com.example.model.Standing;
+import com.example.model.Tournament;
+import com.example.model.User;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.util.List;
+import java.util.Vector;
+
+public class PairingSetupFrm extends JFrame implements ActionListener {
+    private User loggedInUser;
+    private PairingController pairingController;
+
+    private JComboBox<Tournament> cmbTournaments;
+    private JLabel lblCurrentRoundInfo;
+    private JButton btnLoadStandings; // Đổi tên từ "Prepare Pairing"
+    private JButton btnGeneratePairings;
+    private JButton btnBackToHome;
+
+    private JTable tblStandings;
+    private DefaultTableModel standingsTableModel;
+
+    private Tournament selectedTournament;
+    private int nextRoundNumber;
+    private List<Standing> currentStandingsForPairing;
+
+
+    public PairingSetupFrm(User user) {
+        super("Thiết lập Xếp cặp Thi đấu");
+        this.loggedInUser = user;
+        this.pairingController = new PairingController();
+
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // DISPOSE_ON_CLOSE để không thoát cả chương trình
+        setSize(800, 600);
+        setLocationRelativeTo(null);
+        setLayout(new BorderLayout(10, 10));
+
+        // Panel lựa chọn và thông tin
+        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        topPanel.add(new JLabel("Chọn Giải đấu:"));
+        cmbTournaments = new JComboBox<>();
+        loadTournaments();
+        cmbTournaments.addActionListener(this); // Để cập nhật thông tin vòng khi chọn giải đấu
+        topPanel.add(cmbTournaments);
+
+        lblCurrentRoundInfo = new JLabel("Vui lòng chọn giải đấu.");
+        topPanel.add(lblCurrentRoundInfo);
+
+        btnLoadStandings = new JButton("Tải BXH / Chuẩn bị Vòng");
+        btnLoadStandings.addActionListener(this);
+        topPanel.add(btnLoadStandings);
+
+        btnGeneratePairings = new JButton("Xếp cặp");
+        btnGeneratePairings.addActionListener(this);
+        btnGeneratePairings.setEnabled(false); // Ban đầu vô hiệu hóa
+        topPanel.add(btnGeneratePairings);
+
+        btnBackToHome = new JButton("Về Trang chủ");
+        btnBackToHome.addActionListener(this);
+        topPanel.add(btnBackToHome);
+
+
+        add(topPanel, BorderLayout.NORTH);
+
+        // Bảng xếp hạng
+        String[] columnNames = {"Hạng", "ID Cờ thủ", "Tên Cờ thủ", "Elo Hiện tại", "Tổng Điểm", "Tổng Điểm ĐThủ", "Đã Bye"};
+        standingsTableModel = new DefaultTableModel(columnNames, 0){
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false; // Không cho sửa trực tiếp trên bảng
+            }
+        };
+        tblStandings = new JTable(standingsTableModel);
+        JScrollPane scrollPane = new JScrollPane(tblStandings);
+        add(scrollPane, BorderLayout.CENTER);
+
+        // Cập nhật thông tin vòng đấu khi form được khởi tạo (nếu có giải đấu được chọn sẵn)
+        if (cmbTournaments.getItemCount() > 0) {
+            cmbTournaments.setSelectedIndex(0); // Chọn giải đấu đầu tiên
+            actionTournamentSelected(); // Gọi hàm để cập nhật thông tin
+        }
+    }
+
+    private void loadTournaments() {
+        List<Tournament> tournaments = pairingController.getAllTournaments();
+        for (Tournament t : tournaments) {
+            cmbTournaments.addItem(t);
+        }
+    }
+
+    private void actionTournamentSelected() {
+        selectedTournament = (Tournament) cmbTournaments.getSelectedItem();
+        if (selectedTournament == null) {
+            lblCurrentRoundInfo.setText("Vui lòng chọn giải đấu.");
+            btnLoadStandings.setEnabled(false);
+            btnGeneratePairings.setEnabled(false);
+            standingsTableModel.setRowCount(0); // Xóa bảng
+            return;
+        }
+        btnLoadStandings.setEnabled(true);
+        btnGeneratePairings.setEnabled(false); // Vô hiệu hóa lại khi đổi giải đấu
+        nextRoundNumber = pairingController.getNextRoundNumber(selectedTournament.getId());
+        Round latestCompletedRound = pairingController.getLatestCompletedRound(selectedTournament.getId());
+
+        if (nextRoundNumber == 1) {
+            lblCurrentRoundInfo.setText("Chuẩn bị xếp cặp cho Vòng 1.");
+        } else if (latestCompletedRound != null) {
+            lblCurrentRoundInfo.setText("BXH sau " + latestCompletedRound.getName() + ". Chuẩn bị cho Vòng " + nextRoundNumber + ".");
+        } else {
+            // Trường hợp này không nên xảy ra nếu nextRoundNumber > 1
+            lblCurrentRoundInfo.setText("Không có thông tin vòng đấu trước. Chuẩn bị cho Vòng " + nextRoundNumber + ".");
+        }
+        standingsTableModel.setRowCount(0); // Xóa bảng khi đổi giải đấu
+        currentStandingsForPairing = null; // Reset
+    }
+
+
+    private void loadAndDisplayStandings() {
+        if (selectedTournament == null) {
+            JOptionPane.showMessageDialog(this, "Vui lòng chọn một giải đấu.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // nextRoundNumber đã được tính khi chọn giải đấu hoặc load
+        currentStandingsForPairing = pairingController.getCurrentStandings(selectedTournament.getId(), nextRoundNumber);
+        standingsTableModel.setRowCount(0); // Xóa dữ liệu cũ
+
+        if (currentStandingsForPairing.isEmpty() && nextRoundNumber > 1) {
+            JOptionPane.showMessageDialog(this, "Không có cờ thủ nào trong giải đấu này hoặc chưa có dữ liệu vòng trước.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
+            btnGeneratePairings.setEnabled(false);
+            return;
+        }
+        // Nếu là vòng 1 và không có cờ thủ thì cũng thông báo
+        if (currentStandingsForPairing.isEmpty() && nextRoundNumber == 1) {
+            // Kiểm tra xem có cờ thủ nào được đăng ký cho giải này không
+            // (Phần này cần TournamentPlayerDAO().getTournamentPlayersByTournamentId(tournamentId).isEmpty())
+            // Tạm thời giả định là nếu getCurrentStandings trả về rỗng cho vòng 1 thì là chưa có ai.
+            JOptionPane.showMessageDialog(this, "Chưa có cờ thủ nào được đăng ký cho giải đấu này.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
+            btnGeneratePairings.setEnabled(false);
+            return;
+        }
+
+
+        for (Standing standing : currentStandingsForPairing) {
+            Vector<Object> row = new Vector<>();
+            row.add(standing.getRank());
+            row.add(standing.getPlayerId());
+            row.add(standing.getPlayerName());
+            row.add(standing.getCurrentElo());
+            row.add(standing.getTotalPoints());
+            row.add(standing.getSumOpponentPoints());
+            row.add(standing.hasReceivedBye() ? "Rồi" : "Chưa");
+            standingsTableModel.addRow(row);
+        }
+        btnGeneratePairings.setEnabled(true); // Cho phép xếp cặp khi đã có bảng xếp hạng
+        if (nextRoundNumber == 1 && currentStandingsForPairing.size() < 2) {
+            JOptionPane.showMessageDialog(this, "Cần ít nhất 2 cờ thủ để xếp cặp cho Vòng 1.", "Thông báo", JOptionPane.WARNING_MESSAGE);
+            btnGeneratePairings.setEnabled(false);
+        } else if (nextRoundNumber > 1 && currentStandingsForPairing.size() < 2 && currentStandingsForPairing.stream().noneMatch(s -> !s.hasReceivedBye())) {
+            // Nếu chỉ còn 1 người chưa bye, hoặc không còn ai để đấu
+            JOptionPane.showMessageDialog(this, "Không đủ cờ thủ để tiếp tục xếp cặp.", "Thông báo", JOptionPane.WARNING_MESSAGE);
+            btnGeneratePairings.setEnabled(false);
+        }
+    }
+
+    @Override
+    public void actionPerformed(ActionEvent e) {
+        if (e.getSource() == cmbTournaments) {
+            actionTournamentSelected();
+        } else if (e.getSource() == btnLoadStandings) {
+            loadAndDisplayStandings();
+        } else if (e.getSource() == btnGeneratePairings) {
+            if (selectedTournament == null || currentStandingsForPairing == null || currentStandingsForPairing.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Vui lòng tải Bảng xếp hạng trước khi xếp cặp.", "Lỗi", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            // Kiểm tra nếu không đủ người chơi để xếp cặp (ví dụ: chỉ còn 1 người)
+            long nonByePlayersCount = currentStandingsForPairing.stream().filter(s -> !s.hasReceivedBye() || currentStandingsForPairing.size() % 2 == 0 ).count();
+            if (currentStandingsForPairing.size() < 2 && nonByePlayersCount < 2) {
+                JOptionPane.showMessageDialog(this, "Không đủ cờ thủ để xếp cặp (cần ít nhất 2).", "Thông báo", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+
+            List<Match> generatedMatches = pairingController.generatePairings(selectedTournament.getId(), nextRoundNumber, currentStandingsForPairing);
+            if (generatedMatches.isEmpty() && currentStandingsForPairing.size() >=2 ) { // Nếu có người chơi nhưng không xếp được cặp
+                JOptionPane.showMessageDialog(this, "Không thể tạo cặp đấu. Vui lòng kiểm tra lại dữ liệu và luật xếp cặp.", "Lỗi Xếp Cặp", JOptionPane.ERROR_MESSAGE);
+            } else if (!generatedMatches.isEmpty()){
+                new GeneratedPairingsFrm(this, loggedInUser, pairingController, selectedTournament, nextRoundNumber, generatedMatches).setVisible(true);
+            } else if (currentStandingsForPairing.size() < 2) {
+                JOptionPane.showMessageDialog(this, "Không đủ cờ thủ để xếp cặp.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
+            }
+
+        } else if (e.getSource() == btnBackToHome) {
+            this.dispose();
+            new RefereeHomeFrm(loggedInUser).setVisible(true);
+        }
+    }
+}

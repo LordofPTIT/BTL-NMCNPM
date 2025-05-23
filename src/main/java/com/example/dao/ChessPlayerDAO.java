@@ -1,0 +1,71 @@
+package com.example.dao;
+
+import com.example.model.ChessPlayer;
+
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+public class ChessPlayerDAO extends DAO {
+    public ChessPlayerDAO() {
+        super();
+    }
+
+    public ChessPlayer getPlayerById(int playerId) {
+        ChessPlayer player = null;
+        String sql = "SELECT * FROM tblChessPlayer WHERE id = ?";
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(sql);
+            ps.setInt(1, playerId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                player = new ChessPlayer(
+                        rs.getInt("id"),
+                        rs.getString("name"),
+                        rs.getInt("birthYear"),
+                        rs.getString("nationality"),
+                        rs.getInt("initialElo"),
+                        rs.getString("notes")
+                );
+            }
+            rs.close();
+            ps.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return player;
+    }
+
+    public Map<Integer, ChessPlayer> getPlayersByIds(List<Integer> playerIds) {
+        Map<Integer, ChessPlayer> playersMap = new HashMap<>();
+        if (playerIds == null || playerIds.isEmpty()) {
+            return playersMap;
+        }
+        String idsString = playerIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+        String sql = "SELECT * FROM tblChessPlayer WHERE id IN (" + idsString + ")"; // SQL Injection risk if not careful, but here IDs are integers
+
+        try (Statement stmt = getConnection().createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                ChessPlayer player = new ChessPlayer(
+                        rs.getInt("id"),
+                        rs.getString("name"),
+                        rs.getInt("birthYear"),
+                        rs.getString("nationality"),
+                        rs.getInt("initialElo"),
+                        rs.getString("notes")
+                );
+                playersMap.put(player.getId(), player);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return playersMap;
+    }
+}
