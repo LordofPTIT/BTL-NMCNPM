@@ -1,12 +1,17 @@
 package com.example.dao;
 
-import com.example.model.Match;
-
-import java.sql.*;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
+import com.example.model.Match;
 
 public class MatchDAO extends DAO {
     public MatchDAO() {
@@ -82,5 +87,31 @@ public class MatchDAO extends DAO {
             e.printStackTrace();
         }
         return playedPairs;
+    }
+
+    public List<Match> getMatchesByRound(int roundId) {
+        List<Match> matches = new ArrayList<>();
+        String sql = "SELECT * FROM tblMatch WHERE roundId = ? ORDER BY tableNumber";
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(sql);
+            ps.setInt(1, roundId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                Match match = new Match();
+                match.setId(rs.getInt("id"));
+                match.setRoundId(rs.getInt("roundId"));
+                match.setPlayer1Id(rs.getInt("player1Id"));
+                match.setPlayer2Id(rs.getInt("player2Id"));
+                match.setResult(rs.getString("result"));
+                match.setTableNumber(rs.getInt("tableNumber"));
+                match.setMatchTime(rs.getTimestamp("matchTime"));
+                matches.add(match);
+            }
+            rs.close();
+            ps.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return matches;
     }
 }

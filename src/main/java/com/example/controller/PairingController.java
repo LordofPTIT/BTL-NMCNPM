@@ -255,4 +255,18 @@ public class PairingController {
 
         return true;
     }
+
+    public List<Match> getMatchesByRound(int roundId) {
+        List<Match> matches = matchDAO.getMatchesByRound(roundId);
+        // Load chi tiết cờ thủ cho các match
+        for (Match match : matches) {
+            if (match.getPlayer1Id() > 0) {
+                match.setPlayer1Details(chessPlayerDAO.getPlayerById(match.getPlayer1Id()));
+            }
+            if (match.getPlayer2Id() != null && match.getPlayer2Id() > 0) {
+                match.setPlayer2Details(chessPlayerDAO.getPlayerById(match.getPlayer2Id()));
+            }
+        }
+        return matches;
+    }
 }

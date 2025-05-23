@@ -39,6 +39,7 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
     private JButton btnLoadStandings;
     private JButton btnGeneratePairings;
     private JButton btnBackToHome;
+    private JButton btnViewPairings;
 
     private JTable tblStandings;
     private DefaultTableModel standingsTableModel;
@@ -98,6 +99,11 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
         btnGeneratePairings.setEnabled(false);
         buttonControlPanel.add(btnGeneratePairings);
 
+        btnViewPairings = new JButton("Xem cặp đấu");
+        btnViewPairings.addActionListener(this);
+        btnViewPairings.setEnabled(false);
+        buttonControlPanel.add(btnViewPairings);
+
         btnBackToHome = new JButton("Về Trang chủ");
         btnBackToHome.addActionListener(this);
         buttonControlPanel.add(btnBackToHome);
@@ -137,7 +143,8 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
     private void actionTournamentSelected() {
         selectedTournament = (Tournament) cmbTournaments.getSelectedItem();
         standingsTableModel.setRowCount(0); // Clear table
-        btnGeneratePairings.setEnabled(false); // Disable generate button
+        btnGeneratePairings.setEnabled(false);
+        btnViewPairings.setEnabled(false);
         currentStandingsForPairing = null;
 
         if (selectedTournament == null) {
@@ -167,6 +174,7 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
             // Chọn vòng hoàn thành gần nhất
             cmbPreviousRounds.setSelectedItem(completedRounds.get(completedRounds.size() - 1));
             cmbPreviousRounds.setEnabled(true);
+            btnViewPairings.setEnabled(true);
             lblCurrentRoundInfo.setText("Cơ sở: " + completedRounds.get(completedRounds.size() - 1).getName() + 
                 " | Chuẩn bị xếp cặp cho Vòng " + nextRoundNumber + " của giải " + selectedTournament.getName());
         }
@@ -256,6 +264,7 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
     private void disablePairingControls() {
         btnLoadStandings.setEnabled(false);
         btnGeneratePairings.setEnabled(false);
+        btnViewPairings.setEnabled(false);
         cmbPreviousRounds.setEnabled(false);
     }
 
@@ -265,6 +274,13 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
             actionTournamentSelected();
         } else if (e.getSource() == cmbPreviousRounds) {
             actionPreviousRoundSelected();
+            // Xử lý khi chọn vòng đấu
+            Object selectedItem = cmbPreviousRounds.getSelectedItem();
+            if (selectedItem instanceof Round) {
+                btnViewPairings.setEnabled(true);
+            } else {
+                btnViewPairings.setEnabled(false);
+            }
         } else if (e.getSource() == btnLoadStandings) {
             loadAndDisplayStandings();
         } else if (e.getSource() == btnGeneratePairings) {
@@ -287,19 +303,22 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
                     JOptionPane.showMessageDialog(this, "Không thể tạo đủ cặp đấu cho tất cả cờ thủ hợp lệ. Có thể một số cờ thủ không tìm được đối thủ theo luật.", "Cảnh báo Xếp Cặp", JOptionPane.WARNING_MESSAGE);
                 } else if (currentStandingsForPairing.size() > 1){
                     JOptionPane.showMessageDialog(this, "Không thể tạo cặp đấu. Vui lòng kiểm tra lại dữ liệu và luật.", "Lỗi Xếp Cặp", JOptionPane.ERROR_MESSAGE);
-                    return; // Do not proceed to show empty pairings dialog if error
+                    return;
                 }
             }
 
-            // Even if some players couldn't be paired, show the dialog with what was generated (e.g. a bye match)
-            // Or if only one player, might generate just a bye.
             if (!generatedMatches.isEmpty() || currentStandingsForPairing.size() == 1) {
                 new GeneratedPairingsFrm(this, loggedInUser, pairingController, selectedTournament, forWhichRoundNumber, generatedMatches).setVisible(true);
-            } else if (currentStandingsForPairing.size() < 2) { // Double check, though already handled
+            } else if (currentStandingsForPairing.size() < 2) {
                 JOptionPane.showMessageDialog(this, "Không đủ cờ thủ để xếp cặp.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
             }
 
-
+        } else if (e.getSource() == btnViewPairings) {
+            Object selectedItem = cmbPreviousRounds.getSelectedItem();
+            if (selectedItem instanceof Round) {
+                Round selectedRound = (Round) selectedItem;
+                new ViewPairingsFrm(this, loggedInUser, pairingController, selectedTournament, selectedRound).setVisible(true);
+            }
         } else if (e.getSource() == btnBackToHome) {
             this.dispose();
             new RefereeHomeFrm(loggedInUser).setVisible(true);
@@ -332,6 +351,7 @@ public class PairingSetupFrm extends JFrame implements ActionListener {
                 // Chọn vòng hoàn thành gần nhất
                 cmbPreviousRounds.setSelectedItem(completedRounds.get(completedRounds.size() - 1));
                 cmbPreviousRounds.setEnabled(true);
+                btnViewPairings.setEnabled(true);
                 lblCurrentRoundInfo.setText("Cơ sở: " + completedRounds.get(completedRounds.size() - 1).getName() + 
                     " | Chuẩn bị xếp cặp cho Vòng " + nextRoundNumber + " của giải " + selectedTournament.getName());
             }
